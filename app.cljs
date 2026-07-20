@@ -109,8 +109,14 @@
 ;; ============================================================
 ;; Vim Editor State
 ;; ============================================================
+;; ============================================================
+;; Vim Editor State
+;; ============================================================
+(def storage-key "vim-org-editor-content")
+(def default-text "Hello from Vim!\nThis is the editor.\n\n* Org mode heading\nSome text here")
+
 (def app-state
-  (atom {:text "Hello from Vim!\nThis is the editor.\n\n* Org mode heading\nSome text here"
+  (atom {:text (or (.getItem js/localStorage storage-key) default-text)
          :mode "normal"
          :cursor {:row 0 :col 0}
          :visual-start nil
@@ -123,6 +129,7 @@
          :surround-bounds nil
          :command-text ""
          :last-search nil}))
+
 
 (defn get-lines [s]
   (.split (:text s) "\n"))
@@ -951,9 +958,12 @@
               (render))
 
           ;; 3. Command Mode
+          ;; 3. Command Mode
           (= mode "command")
           (do (case key
-                "w" (swap! app-state assoc :message "Saved - simulated")
+                "w" (do
+                      (.setItem js/localStorage storage-key (:text state))
+                      (swap! app-state assoc :message "Saved to localStorage"))
                 "q" (swap! app-state assoc :message "Quit? Just close the tab")
                 (swap! app-state assoc :message (str "Unknown cmd: :" key)))
               (when (or (= key "Enter") (= key "w") (= key "q"))
