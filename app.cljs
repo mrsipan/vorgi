@@ -16,6 +16,9 @@
 ;; ============================================================
 ;; Org-mode AST to HTML converter
 ;; ============================================================
+;; ============================================================
+;; Org-mode AST to HTML converter
+;; ============================================================
 (defn node->html [node]
   (let [t (.-type node)]
     (case t
@@ -43,7 +46,7 @@
                      (= style "bold") (str "<strong>" val "</strong>")
                      (= style "code") (str "<code>" val "</code>")
                      (= style "verbatim") (str "<code>" val "</code>")
-                     :else val))
+                     :else (escape-html val)))
       "list" (let [children (.-children node)]
                (str "<ul>"
                     (.join (.map children (fn [c] (node->html c))) "")
@@ -54,6 +57,20 @@
                     (str "<li>"
                          (.join (.map f2 (fn [c] (node->html c))) "")
                          "</li>"))
+
+      ;; --- NEW: Handling for #+begin_src ... #+end_src blocks ---
+      "block" (let [val (or (.-value node) "")
+                    name (or (.-name node) "")]
+                (if (= (.toLowerCase name) "src")
+                  (let [params (.-params node)
+                        lang (if (and params (> (.-length params) 0)) (aget params 0) "")]
+                    (str "<pre><code class='language-" lang "'>"
+                         (escape-html val)
+                         "</code></pre>"))
+                  (str "<pre class='org-block'>" (escape-html val) "</pre>")))
+
+      "keyword" ""     ;; Ignores things like #+TITLE:
+      "emptyLine" ""   ;; Ignores AST empty lines
       "stars" ""
       "newline" ""
       "list.item.bullet" ""
