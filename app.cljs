@@ -6,11 +6,11 @@
 ;; ============================================================
 (defn escape-html [s]
   (if s
-    (-> s
-        (.replace "&" "&amp;")
-        (.replace "<" "&lt;")
-        (.replace ">" "&gt;")
-        (.replace "\"" "&quot;"))
+    (-> (str s)
+        (.replaceAll "&" "&amp;")
+        (.replaceAll "<" "&lt;")
+        (.replaceAll ">" "&gt;")
+        (.replaceAll "\"" "&quot;"))
     ""))
 
 ;; ============================================================
@@ -39,10 +39,10 @@
                          "</p>"))
       "text" (let [style (.-style node)
                    val (or (.-value node) "")]
-               (cond (= style "italic") (str "<em>" val "</em>")
-                     (= style "bold") (str "<strong>" val "</strong>")
-                     (= style "code") (str "<code>" val "</code>")
-                     (= style "verbatim") (str "<code>" val "</code>")
+               (cond (= style "italic") (str "<em>" (escape-html val) "</em>")
+                     (= style "bold") (str "<strong>" (escape-html val) "</strong>")
+                     (= style "code") (str "<code>" (escape-html val) "</code>")
+                     (= style "verbatim") (str "<code>" (escape-html val) "</code>")
                      :else (escape-html val)))
       "list" (let [children (.-children node)]
                (str "<ul>"
@@ -55,23 +55,37 @@
                          (.join (.map f2 (fn [c] (node->html c))) "")
                          "</li>"))
 
-      ;; --- NEW: Handling for #+begin_src ... #+end_src blocks ---
-      "block" (let [val (or (.-value node) "")
-                    name (or (.-name node) "")]
+      ;; --- HARDENED BLOCK PARSING ---
+      "block" (let [name (or (.-name node) "")
+                    params (.-params node)
+
+                    ;; Safely grab the language from params (handles nil, string, or array)
+                    lang (cond
+                           (nil? params) ""
+                           (= (js/typeof params) "string") params
+                           (and (.-length params) (> (.-length params) 0)) (aget params 0)
+                           :else "")
+
+                    ;; In newer 'orga', the code is inside the children array instead of 'value'
+                    val (if (.-value node)
+                          (.-value node)
+                          (if (.-children node)
+                            (.join (.map (.-children node) (fn [c] (or (.-value c) ""))) "")
+                            ""))]
                 (if (= (.toLowerCase name) "src")
-                  (let [params (.-params node)
-                        lang (if (and params (> (.-length params) 0)) (aget params 0) "")]
-                    (str "<pre><code class='language-" lang "'>"
-                         (escape-html val)
-                         "</code></pre>"))
+                  (str "<pre style='background: #f4f4f4; padding: 10px; border-radius: 5px;'><code class='language-" lang "'>"
+                       (escape-html val)
+                       "</code></pre>")
                   (str "<pre class='org-block'>" (escape-html val) "</pre>")))
 
-      "keyword" ""     ;; Ignores things like #+TITLE:
-      "emptyLine" ""   ;; Ignores AST empty lines
+      "keyword" ""     ;; Ignores #+TITLE:, #+AUTHOR:, etc.
+      "emptyLine" ""   ;; Ignores AST empty line nodes
       "stars" ""
       "newline" ""
       "list.item.bullet" ""
-      (str "<!-- unknown: " t " -->"))))
+
+      ;; Visual fallback so you can instantly see if a node type is unhandled
+      (str "<div style='color: red; border: 1px solid red; margin: 2px;'>[Unhandled AST node: <b>" t "</b>]</div>"))))
 
 (defn org-to-html [text]
   (if (or (nil? text) (= "" text))
