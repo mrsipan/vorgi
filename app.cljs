@@ -23,37 +23,44 @@
 ;; ============================================================
 ;; Org-mode AST to HTML converter
 ;; ============================================================
+
+;; ============================================================
+;; Org-mode AST to HTML converter
+;; ============================================================
 (defn node->html [node]
   (let [t (.-type node)]
     (case t
-      "document" (let [children (.-children node)]
+      "document" (let [children (or (.-children node) #js [])]
                    (str "<div class='org-doc'>"
                         (.join (.map children (fn [c] (node->html c))) "")
                         "</div>"))
-      "section" (let [children (.-children node)]
-                  (str "<div class='org-section org-level-" (.-level node) "'>"
+      "section" (let [children (or (.-children node) #js [])]
+                  (str "<div class='org-section org-level-" (or (.-level node) "") "'>"
                        (.join (.map children (fn [c] (node->html c))) "")
                        "</div>"))
 
-      ;; --- BULLETPROOF HEADING COLORS ---
-      "headline" (let [level-raw (.-level node)
-                       level (if level-raw (js/parseInt level-raw 10) 1)
-                       children (.-children node)
-                       filtered (.filter children (fn [c] (not= "stars" (.-type c))))
-                       ;; Guaranteed color mapping (wraps smoothly past level 6)
-                       color (case (rem level 6)
-                               1 "#005cc5"  ;; Blue
-                               2 "#22863a"  ;; Green
-                               3 "#6f42c1"  ;; Purple
-                               4 "#d73a49"  ;; Red
-                               5 "#e36209"  ;; Orange
-                               0 "#b08800"  ;; Gold
-                               "#005cc5")]  ;; Fallback
-                   (str "<h" level " class='org-headline' style='color: " color "; margin-top: 0.5em;'>"
+      ;; --- BULLETPROOF COLORED HEADINGS ---
+      "headline" (let [children (or (.-children node) #js [])
+                       ;; Fallback: if orga fails to set 'level', find the stars node and count them
+                       stars-node (.find children (fn [c] (= "stars" (.-type c))))
+                       stars-val (if stars-node (or (.-value stars-node) "") "")
+                       stars-len (.-length stars-val)
+                       level (js/Number (or (.-level node) (if (> stars-len 0) stars-len 1)))
+                       ;; Modulo math that seamlessly wraps back around past level 6
+                       lvl-mod (mod level 6)
+                       color (cond
+                               (= lvl-mod 1) "#005cc5"  ;; Level 1: Blue
+                               (= lvl-mod 2) "#22863a"  ;; Level 2: Green
+                               (= lvl-mod 3) "#6f42c1"  ;; Level 3: Purple
+                               (= lvl-mod 4) "#d73a49"  ;; Level 4: Red
+                               (= lvl-mod 5) "#e36209"  ;; Level 5: Orange
+                               :else "#b08800")         ;; Level 6: Gold
+                       filtered (.filter children (fn [c] (not= "stars" (.-type c))))]
+                   (str "<h" level " class='org-headline' style='color: " color " !important; margin-top: 0.5em;'>"
                         (.join (.map filtered (fn [c] (node->html c))) "")
                         "</h" level ">"))
 
-      "paragraph" (let [children (.-children node)]
+      "paragraph" (let [children (or (.-children node) #js [])]
                     (str "<p>"
                          (.join (.map children (fn [c] (node->html c))) "")
                          "</p>"))
@@ -64,11 +71,11 @@
                      (= style "code") (str "<code>" (escape-html val) "</code>")
                      (= style "verbatim") (str "<code>" (escape-html val) "</code>")
                      :else (escape-html val)))
-      "list" (let [children (.-children node)]
+      "list" (let [children (or (.-children node) #js [])]
                (str "<ul>"
                     (.join (.map children (fn [c] (node->html c))) "")
                     "</ul>"))
-      "list.item" (let [children (.-children node)
+      "list.item" (let [children (or (.-children node) #js [])
                         f1 (.filter children (fn [c] (not= "list.item.bullet" (.-type c))))
                         f2 (.filter f1 (fn [c] (not= "newline" (.-type c))))]
                     (str "<li>"
