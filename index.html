@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vim Org Editor</title>
+<script type="importmap">
+  { "imports": { "squint-cljs/": "https://unpkg.com/squint-cljs/" } }
+</script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #1e1e1e; color: #d4d4d4; font-family: 'Consolas', 'Monaco', 'Courier New', monospace; height: 100vh; overflow: hidden; }
+#app { height: 100vh; }
+.vim-container { display: flex; height: 100vh; width: 100%; }
+.vim-left { flex: 0 0 60%; display: flex; flex-direction: column; border-right: 2px solid #333; }
+.vim-right { flex: 1; display: flex; flex-direction: column; }
+.vim-header { padding: 8px 12px; background: #2d2d2d; border-bottom: 1px solid #444; font-weight: bold; font-size: 14px; color: #888; }
+.vim-editor { flex: 1; padding: 12px; overflow-y: auto; font-size: 16px; line-height: 1.6; outline: none; white-space: pre; cursor: text; }
+.vim-line { min-height: 1.6em; }
+.vim-current-line { background: #2a2a2a; }
+.vim-cursor-block { display: inline; background: #d4d4d4; color: #1e1e1e; }
+.vim-cursor-line { display: inline; background: transparent; color: #d4d4d4; font-weight: bold; animation: blink 1s step-end infinite; }
+.vim-visual-block { background: #569cd6; color: #ffffff; }
+@keyframes blink { 50% { opacity: 0; } }
+.vim-statusbar { padding: 6px 12px; background: #2d2d2d; border-top: 1px solid #444; font-size: 13px; color: #aaa; }
+.vim-mode-normal { font-weight: bold; color: #569cd6; }
+.vim-mode-insert { font-weight: bold; color: #4ec9b0; }
+.vim-mode-command { font-weight: bold; color: #ce9178; }
+.vim-mode-visual { font-weight: bold; color: #c586c0; }
+.vim-msg { color: #ce9178; font-style: italic; }
+.org-preview { flex: 1; padding: 12px; overflow-y: auto; font-size: 15px; line-height: 1.6; }
+.org-preview h1, .org-preview h2, .org-preview h3, .org-preview h4 { color: #569cd6; margin: 12px 0 6px; }
+.org-preview h1 { font-size: 1.4em; }
+.org-preview h2 { font-size: 1.2em; }
+.org-preview h3 { font-size: 1.1em; }
+.org-preview p { margin: 6px 0; }
+.org-preview ul { margin: 6px 0 6px 20px; }
+.org-preview li { margin: 3px 0; }
+.org-preview em { color: #ce9178; }
+.org-preview strong { color: #dcdcaa; }
+.org-preview code { background: #2d2d2d; padding: 1px 4px; border-radius: 3px; color: #ce9178; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+import { compileString } from 'https://unpkg.com/squint-cljs/index.js';
+
+const resp = await fetch('app.cljs');
+const source = await resp.text();
+
+try {
+  const js = compileString(source, { core_module: 'squint-cljs/core.js' });
+  const blob = new Blob([js], { type: 'application/javascript' });
+  await import(URL.createObjectURL(blob));
+} catch (err) {
+  console.error('Squint compilation failed:', err);
+}
+</script>
+</body>
+</html>
