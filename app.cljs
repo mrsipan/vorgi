@@ -16,17 +16,6 @@
 ;; ============================================================
 ;; Org-mode AST to HTML converter
 ;; ============================================================
-;; ============================================================
-;; Org-mode AST to HTML converter
-;; ============================================================
-
-;; ============================================================
-;; Org-mode AST to HTML converter
-;; ============================================================
-
-;; ============================================================
-;; Org-mode AST to HTML converter
-;; ============================================================
 (defn node->html [node]
   (let [t (.-type node)]
     (case t
@@ -108,8 +97,6 @@
 
       (str "<div style='color: red; border: 1px solid red; margin: 2px;'>[Unhandled AST node: <b>" t "</b>]</div>"))))
 
-
-
 (defn org-to-html [text]
   (if (or (nil? text) (= "" text))
     ""
@@ -133,7 +120,9 @@
          :operator nil
          :text-object-type nil
          :surround-old nil
-         :surround-bounds nil}))
+         :surround-bounds nil
+         :command-text ""
+         :last-search nil}))
 
 (defn get-lines [s]
   (.split (:text s) "\n"))
@@ -268,6 +257,26 @@
 ;; ============================================================
 ;; Vim Commands (pure functions returning new state)
 ;; ============================================================
+(defn cmd-execute-search [s query dir]
+  (if (or (nil? query) (= query ""))
+    (assoc s :message "No search pattern")
+    (let [text (:text s)
+          start-idx (text-pos->index text (:row (:cursor s)) (:col (:cursor s)))
+          match-idx (if (= dir :forward)
+                      (let [idx (.indexOf text query (inc start-idx))]
+                        (if (>= idx 0) idx (.indexOf text query 0)))
+                      (let [sub (.slice text 0 start-idx)
+                            idx (.lastIndexOf sub query)]
+                        (if (>= idx 0) idx (.lastIndexOf text query))))]
+      (if (and match-idx (>= match-idx 0))
+        (-> s
+            (assoc :cursor (index->text-pos text match-idx))
+            (assoc :last-search query)
+            (assoc :message (if (and (= dir :forward) (< match-idx start-idx)) "search hit BOTTOM, continuing at TOP"
+                                (if (and (= dir :backward) (> match-idx start-idx)) "search hit TOP, continuing at BOTTOM"
+                                    (str "/" query)))))
+        (assoc s :message (str "Pattern not found: " query) :last-search query)))))
+
 (defn cmd-move-cursor [s dr dc]
   (let [lines (get-lines s)
         row (clamp (+ (:row (:cursor s)) dr) 0 (dec (.-length lines)))
@@ -928,8 +937,8 @@
           (or (= key "Escape") (and ctrl (= key (str (char 91)))))
           (do (reset! pending-d false) (reset! pending-g false) (reset! pending-find nil)
               (if (= mode "visual")
-                (swap! app-state assoc :mode "normal" :message "" :visual-start nil :visual-type nil :operator nil :text-object-type nil)
-                (swap! app-state assoc :mode "normal" :message "" :operator nil :text-object-type nil))
+                (swap! app-state assoc :mode "normal" :message "" :visual-start nil :visual-type nil :operator nil :text-object-type nil :command-text "")
+                (swap! app-state assoc :mode "normal" :message "" :operator nil :text-object-type nil :command-text "" :last-search nil))
               (render))
 
           ;; 2. Insert Mode
@@ -951,7 +960,25 @@
                 (swap! app-state assoc :mode "normal"))
               (render))
 
-          ;; 4. Visual Mode
+          ;; 4. Search Mode (Buffer for '/' and '?')
+          (= mode "search")
+          (do (cond
+                (= key "Enter")
+                (let [cmd-text (:command-text state)
+                      dir (if (.startsWith cmd-text "?") :backward :forward)
+                      query (.slice cmd-text 1)]
+                  (swap! app-state (fn [s] (-> s
+                                               (assoc :mode "normal" :command-text "")
+                                               (cmd-execute-search query dir)))))
+                (= key "Backspace")
+                (if (<= (.-length (:command-text state)) 1)
+                  (swap! app-state assoc :mode "normal" :command-text "")
+                  (swap! app-state assoc :command-text (.slice (:command-text state) 0 -1)))
+                (= (.-length key) 1)
+                (swap! app-state assoc :command-text (str (:command-text state) key)))
+              (render))
+
+          ;; 5. Visual Mode
           (= mode "visual")
           (let [vtype (:visual-type state)]
             (case key
@@ -973,11 +1000,11 @@
               (swap! app-state assoc :message (str "Unknown: " key)))
             (render))
 
-          ;; 5. Normal Mode: Visual Block entry
+          ;; 6. Normal Mode: Visual Block entry
           (and ctrl (= key "v"))
           (do (swap! app-state cmd-enter-visual "block") (render))
 
-          ;; 6. Normal Mode: Text Object Pending (ci", yiw, etc)
+          ;; 7. Normal Mode: Text Object Pending (ci", yiw, etc)
           tot
           (do (let [obj-keys #{"w" "\"" "'" "`" "(" ")" "[" "]" "{" "}" "<" ">"}]
                 (if (contains? obj-keys key)
@@ -988,7 +1015,7 @@
                   (swap! app-state assoc :operator nil :text-object-type nil)))
               (render))
 
-          ;; 7. Normal Mode: Operator Pending (d, c, y, cs, ds, ys)
+          ;; 8. Normal Mode: Operator Pending (d, c, y, cs, ds, ys)
           op
           (do (cond
                 (or (= key "i") (= key "a"))
@@ -1042,7 +1069,7 @@
                 (swap! app-state assoc :operator nil :message ""))
               (render))
 
-          ;; 8. Normal Mode: Pending Find (f, F, t, T)
+          ;; 9. Normal Mode: Pending Find (f, F, t, T)
           @pending-find
           (do (let [fi @pending-find char key pre-state @app-state]
                 (reset! pending-find nil)
@@ -1055,7 +1082,7 @@
                   (let [post-state @app-state] (reset! app-state (apply-operator pre-state (:operator fi) post-state)))))
               (render))
 
-          ;; 9. Normal Mode: Default keystrokes
+          ;; 10. Normal Mode: Default keystrokes
           :else
           (do (case key
                 "h" (swap! app-state cmd-move-cursor 0 -1)
@@ -1117,9 +1144,95 @@
                           "T" (if (= opp :backward) (swap! app-state cmd-find-till-backward ch) (swap! app-state cmd-find-till-forward ch))))
                       (swap! app-state assoc :message "No previous find"))
                 ":" (swap! app-state assoc :mode "command")
+
+                ;; ---> SEARCH BINDINGS <---
+                "/" (swap! app-state assoc :mode "search" :command-text "/")
+                "?" (swap! app-state assoc :mode "search" :command-text "?")
+                "n" (swap! app-state #(if (:last-search %) (cmd-execute-search % (:last-search %) :forward) (assoc % :message "No previous regular expression")))
+                "N" (swap! app-state #(if (:last-search %) (cmd-execute-search % (:last-search %) :backward) (assoc % :message "No previous regular expression")))
+
                 (swap! app-state assoc :message (str "Unknown: " key)))
               (render)))))))
 
+;; ============================================================
+;; Character-By-Character Line Rendering
+;; ============================================================
+(defn render-line-html [line row state]
+  (let [query (:last-search state)
+        cursor (:cursor state)
+        is-cursor-row (= row (:row cursor))
+        cursor-col (:col cursor)
+        mode (:mode state)
+        vstart (:visual-start state)
+        visual-mode? (and (= mode "visual") vstart)
+        bounds (when visual-mode? (visual-bounds state))
+        vtype (:visual-type state)
+
+        in-visual? (fn [r c]
+                     (if-not bounds false
+                       (let [sr (:row (:start bounds))
+                             sc (:col (:start bounds))
+                             er (:row (:end bounds))
+                             ec (:col (:end bounds))]
+                         (case vtype
+                           "line" false ;; Handled at the top level div via .vim-visual-block
+                           "block" (and (>= r sr) (<= r er) (>= c sc) (<= c ec))
+                           (if (= sr er)
+                             (and (= r sr) (>= c sc) (<= c ec))
+                             (cond
+                               (= r sr) (>= c sc)
+                               (= r er) (<= c ec)
+                               :else (and (> r sr) (< r er))))))))
+
+        q-len (if query (.-length query) 0)
+        ;; Pre-calculate indices of all chars that match the search string
+        matches (if (and query (> q-len 0))
+                  (loop [idx 0 acc #{}]
+                    (let [found (.indexOf line query idx)]
+                      (if (>= found 0)
+                        (recur (+ found q-len) (into acc (range found (+ found q-len))))
+                        acc)))
+                  #{})
+
+        line-len (.-length line)
+        ;; Allow rendering past EOL for insert cursor or visual blocks
+        render-len (let [c-len (if (and is-cursor-row (>= cursor-col line-len)) (inc cursor-col) line-len)]
+                     (if (and visual-mode? (= vtype "block") bounds (>= row (:row (:start bounds))) (<= row (:row (:end bounds))))
+                       (max c-len (inc (:col (:end bounds))))
+                       c-len))]
+
+    (if (= render-len 0)
+      (if is-cursor-row
+        (if (= mode "normal")
+          "<span class='vim-cursor-block'> </span>"
+          "<span class='vim-cursor-line'>|</span> ")
+        "")
+      (let [html-parts #js []]
+        (loop [col 0]
+          (when (< col render-len)
+            (let [char (if (< col line-len) (.charAt line col) " ")
+                  is-cursor (and is-cursor-row (= col cursor-col))
+                  is-visual (in-visual? row col)
+                  is-search (contains? matches col)
+                  esc-char (escape-html char)
+                  ;; Layer styles (search -> visual -> raw)
+                  styled-char (cond
+                                is-visual (str "<span class='vim-visual-block'>" esc-char "</span>")
+                                is-search (str "<span class='vim-search-hl' style='background-color: #fbbc04; color: #000; border-radius: 2px;'>" esc-char "</span>")
+                                :else esc-char)
+                  ;; Layer cursor on top
+                  final-char (if is-cursor
+                               (if (= mode "normal")
+                                 (str "<span class='vim-cursor-block'>" esc-char "</span>")
+                                 (str "<span class='vim-cursor-line'>|</span>" styled-char))
+                               styled-char)]
+              (.push html-parts final-char)
+              (recur (inc col)))))
+        (.join html-parts "")))))
+
+;; ============================================================
+;; UI Rendering
+;; ============================================================
 ;; ============================================================
 ;; UI Rendering
 ;; ============================================================
@@ -1133,122 +1246,37 @@
         cursor-col (:col cursor)
         vtype (:visual-type state)
         vstart (:visual-start state)
-        visual-mode? (and (= mode "visual") vstart)]
+        visual-mode? (and (= mode "visual") vstart)
+        bounds (when visual-mode? (visual-bounds state))]
+
     (set! (.-innerHTML (js/document.getElementById "app"))
       (str "<div class='vim-container'>"
            "<div class='vim-left'>"
            "<div class='vim-header'>EDITOR - "
            (.toUpperCase mode) " MODE</div>"
            "<div class='vim-editor' id='vim-editor' contenteditable='false'>"
+
+           ;; Rendering Loop simplified using character mapping
            (.join (.map lines (fn [line i]
-               (if visual-mode?
-                 (case vtype
-                   "block"
-                   (let [sr (min (:row vstart) cursor-row)
-                         er (max (:row vstart) cursor-row)
-                         line-len (.-length line)
-                         sc (min (min (:col vstart) cursor-col) line-len)
-                         ec (min (inc (max (:col vstart) cursor-col)) line-len)]
-                     (if (<= sr i er)
-                       (str "<div class='vim-line"
-                            (if (= i cursor-row) " vim-current-line" "")
-                            "'>"
-                            (escape-html (.slice line 0 sc))
-                            "<span class='vim-visual-block'>"
-                            (escape-html (.slice line sc ec))
-                            "</span>"
-                            (escape-html (.slice line ec))
-                            "</div>")
-                       (if (= i cursor-row)
-                         (let [before (escape-html (.slice line 0 cursor-col))
-                               at-char (if (< cursor-col (.-length line))
-                                         (escape-html (.slice line cursor-col (inc cursor-col)))
-                                         " ")]
-                           (str "<div class='vim-line vim-current-line'>"
-                                before
-                                "<span class='vim-cursor-line'>|</span>"
-                                (escape-html (.slice line (inc cursor-col)))
-                                "</div>"))
-                         (str "<div class='vim-line'>" (escape-html line) "</div>"))))
-                   "line"
-                   (let [bounds (visual-bounds state)
-                         sr (:row (:start bounds))
-                         er (:row (:end bounds))]
-                     (if (<= sr i er)
-                       (str "<div class='vim-line"
-                            (if (= i cursor-row) " vim-current-line" "")
-                            "'><span class='vim-visual-block'>"
-                            (escape-html line)
-                            "</span></div>")
-                       (str "<div class='vim-line'>"
-                            (escape-html line)
-                            "</div>")))
-                   (let [bounds (visual-bounds state)
-                         sr (:row (:start bounds))
-                         sc (:col (:start bounds))
-                         er (:row (:end bounds))
-                         ec (:col (:end bounds))]
-                     (cond
-                       (< i sr)
-                       (str "<div class='vim-line'>" (escape-html line) "</div>")
-                       (> i er)
-                       (str "<div class='vim-line'>" (escape-html line) "</div>")
-                       (= i sr)
-                       (if (= sr er)
-                         (let [line-len (.-length line)
-                               sc2 (min sc line-len)
-                               ec2 (min (inc ec) line-len)]
-                           (str "<div class='vim-line"
-                                (if (= i cursor-row) " vim-current-line" "")
-                                "'>"
-                                (escape-html (.slice line 0 sc2))
-                                "<span class='vim-visual-block'>"
-                                (escape-html (.slice line sc2 ec2))
-                                "</span>"
-                                (escape-html (.slice line ec2))
-                                "</div>"))
-                         (let [line-len (.-length line)
-                               sc2 (min sc line-len)]
-                           (str "<div class='vim-line"
-                                (if (= i cursor-row) " vim-current-line" "")
-                                "'>"
-                                (escape-html (.slice line 0 sc2))
-                                "<span class='vim-visual-block'>"
-                                (escape-html (.slice line sc2))
-                                "</span></div>")))
-                       (= i er)
-                       (let [ec2 (min (inc ec) (.-length line))]
-                         (str "<div class='vim-line"
-                              (if (= i cursor-row) " vim-current-line" "")
-                              "'>"
-                              "<span class='vim-visual-block'>"
-                              (escape-html (.slice line 0 ec2))
-                              "</span>"
-                              (escape-html (.slice line ec2))
-                              "</div>"))
-                       :else
-                       (str "<div class='vim-line"
-                            (if (= i cursor-row) " vim-current-line" "")
-                            "'><span class='vim-visual-block'>"
-                            (escape-html line)
-                            "</span></div>"))))
-                 (if (= i cursor-row)
-                   (let [before (escape-html (.slice line 0 cursor-col))
-                         at-char (if (< cursor-col (.-length line))
-                                   (escape-html (.slice line cursor-col (inc cursor-col)))
-                                   " ")]
-                     (str "<div class='vim-line vim-current-line'>"
-                          before
-                          (if (= mode "normal")
-                            (str "<span class='vim-cursor-block'>" at-char "</span>")
-                            (str "<span class='vim-cursor-line'>|</span>"))
-                          (escape-html (.slice line (inc cursor-col)))
-                          "</div>"))
-                   (str "<div class='vim-line'>" (escape-html line) "</div>"))))) "")
+                                (let [in-visual-line? (and visual-mode?
+                                                           (= vtype "line")
+                                                           bounds
+                                                           (>= i (:row (:start bounds)))
+                                                           (<= i (:row (:end bounds))))]
+                                  (str "<div class='vim-line"
+                                       (if (= i cursor-row) " vim-current-line" "")
+                                       (if in-visual-line? " vim-visual-block" "")
+                                       "'>"
+                                       (render-line-html line i state)
+                                       "</div>"))))
+                  "")
+
            "</div>"
            "<div class='vim-statusbar'>"
-           "<span class='vim-mode-" mode "'>" (.toUpperCase mode) "</span>"
-           (if (not= msg "") (str " <span class='vim-msg'>" msg "</span>") "")
+           (if (= mode "search")
+             (str "<span class='vim-cmdline'>" (escape-html (:command-text state)) "<span class='vim-cursor-block'>&nbsp;</span></span>")
+             (str "<span class='vim-mode-" mode "'>" (.toUpperCase mode) "</span>"
+                  (if (not= msg "") (str " <span class='vim-msg'>" msg "</span>") "")))
            " | row: " (inc cursor-row) " col: " (inc cursor-col)
            " | " (.-length lines) " lines"
            "</div>"
@@ -1259,7 +1287,17 @@
            (org-to-html (:text state))
            "</div>"
            "</div>"
-           "</div>"))))
+           "</div>"))
+
+    ;; --- BUG FIX: Auto-scroll to keep the cursor in view ---
+    (let [cursor-el (or (.querySelector js/document ".vim-cursor-block")
+                        (.querySelector js/document ".vim-cursor-line")
+                        (.querySelector js/document ".vim-current-line"))]
+      (when cursor-el
+        ;; Using block: "nearest" ensures smooth scrolling only when the cursor
+        ;; actually pushes past the visible boundary of the #vim-editor container.
+        (.scrollIntoView cursor-el #js {:block "nearest" :inline "nearest"})))))
+
 
 (defn init []
   (js/document.addEventListener "keydown" handle-key)
