@@ -16,6 +16,9 @@
 ;; ============================================================
 ;; Org-mode AST to HTML converter
 ;; ============================================================
+;; ============================================================
+;; Org-mode AST to HTML converter
+;; ============================================================
 (defn node->html [node]
   (let [t (.-type node)]
     (case t
@@ -27,12 +30,19 @@
                   (str "<div class='org-section org-level-" (.-level node) "'>"
                        (.join (.map children (fn [c] (node->html c))) "")
                        "</div>"))
+
+      ;; --- NEW: Colored Headings ---
       "headline" (let [level (.-level node)
                        children (.-children node)
-                       filtered (.filter children (fn [c] (not= "stars" (.-type c))))]
-                   (str "<h" level " class='org-headline'>"
+                       filtered (.filter children (fn [c] (not= "stars" (.-type c))))
+                       ;; A nice readable palette: Blue, Green, Purple, Red, Orange, Gold
+                       colors #js ["#005cc5" "#22863a" "#6f42c1" "#d73a49" "#e36209" "#b08800"]
+                       ;; Use modulo so it wraps around if you go deeper than 6 levels
+                       color (aget colors (mod (max 0 (dec level)) 6))]
+                   (str "<h" level " class='org-headline' style='color: " color ";'>"
                         (.join (.map filtered (fn [c] (node->html c))) "")
                         "</h" level ">"))
+
       "paragraph" (let [children (.-children node)]
                     (str "<p>"
                          (.join (.map children (fn [c] (node->html c))) "")
@@ -55,18 +65,13 @@
                          (.join (.map f2 (fn [c] (node->html c))) "")
                          "</li>"))
 
-      ;; --- HARDENED BLOCK PARSING ---
       "block" (let [name (or (.-name node) "")
                     params (.-params node)
-
-                    ;; Safely grab the language from params (handles nil, string, or array)
                     lang (cond
                            (nil? params) ""
                            (= (js/typeof params) "string") params
                            (and (.-length params) (> (.-length params) 0)) (aget params 0)
                            :else "")
-
-                    ;; In newer 'orga', the code is inside the children array instead of 'value'
                     val (if (.-value node)
                           (.-value node)
                           (if (.-children node)
@@ -78,14 +83,14 @@
                        "</code></pre>")
                   (str "<pre class='org-block'>" (escape-html val) "</pre>")))
 
-      "keyword" ""     ;; Ignores #+TITLE:, #+AUTHOR:, etc.
-      "emptyLine" ""   ;; Ignores AST empty line nodes
+      "keyword" ""
+      "emptyLine" ""
       "stars" ""
       "newline" ""
       "list.item.bullet" ""
 
-      ;; Visual fallback so you can instantly see if a node type is unhandled
       (str "<div style='color: red; border: 1px solid red; margin: 2px;'>[Unhandled AST node: <b>" t "</b>]</div>"))))
+
 
 (defn org-to-html [text]
   (if (or (nil? text) (= "" text))
