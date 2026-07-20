@@ -19,6 +19,10 @@
 ;; ============================================================
 ;; Org-mode AST to HTML converter
 ;; ============================================================
+
+;; ============================================================
+;; Org-mode AST to HTML converter
+;; ============================================================
 (defn node->html [node]
   (let [t (.-type node)]
     (case t
@@ -31,15 +35,21 @@
                        (.join (.map children (fn [c] (node->html c))) "")
                        "</div>"))
 
-      ;; --- NEW: Colored Headings ---
-      "headline" (let [level (.-level node)
+      ;; --- BULLETPROOF HEADING COLORS ---
+      "headline" (let [level-raw (.-level node)
+                       level (if level-raw (js/parseInt level-raw 10) 1)
                        children (.-children node)
                        filtered (.filter children (fn [c] (not= "stars" (.-type c))))
-                       ;; A nice readable palette: Blue, Green, Purple, Red, Orange, Gold
-                       colors #js ["#005cc5" "#22863a" "#6f42c1" "#d73a49" "#e36209" "#b08800"]
-                       ;; Use modulo so it wraps around if you go deeper than 6 levels
-                       color (aget colors (mod (max 0 (dec level)) 6))]
-                   (str "<h" level " class='org-headline' style='color: " color ";'>"
+                       ;; Guaranteed color mapping (wraps smoothly past level 6)
+                       color (case (rem level 6)
+                               1 "#005cc5"  ;; Blue
+                               2 "#22863a"  ;; Green
+                               3 "#6f42c1"  ;; Purple
+                               4 "#d73a49"  ;; Red
+                               5 "#e36209"  ;; Orange
+                               0 "#b08800"  ;; Gold
+                               "#005cc5")]  ;; Fallback
+                   (str "<h" level " class='org-headline' style='color: " color "; margin-top: 0.5em;'>"
                         (.join (.map filtered (fn [c] (node->html c))) "")
                         "</h" level ">"))
 
@@ -90,6 +100,7 @@
       "list.item.bullet" ""
 
       (str "<div style='color: red; border: 1px solid red; margin: 2px;'>[Unhandled AST node: <b>" t "</b>]</div>"))))
+
 
 
 (defn org-to-html [text]
